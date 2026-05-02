@@ -1,0 +1,49 @@
+# Example GitHub Actions workflow for DKG Working Memory ingestion.
+# Save this as .github/workflows/dkg-ingest.yml in your repository.
+#
+# Required secrets:
+#   DKG_TOKEN       — Bearer token for your DKG v10 node
+#   DKG_BASE_URL    — URL of your DKG v10 node (e.g. http://my-node.example.com:9200)
+#   DKG_CONTEXT_GRAPH — Context Graph ID scoping this repo's knowledge
+
+name: Ingest to DKG Working Memory
+
+on:
+  issues:
+    types: [opened, edited, closed, reopened]
+  pull_request:
+    types: [opened, edited, closed, reopened, review_requested]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+
+    steps:
+      - name: Ingest to DKG Working Memory
+        uses: your-org/github-dkg@v0.1.0
+        with:
+          dkg-token: ${{ secrets.DKG_TOKEN }}
+          dkg-base-url: ${{ secrets.DKG_BASE_URL }}
+          dkg-context-graph: ${{ secrets.DKG_CONTEXT_GRAPH }}
+          layer: wm
+
+      # Optional: promote architecture-decision PRs to Shared Working Memory
+      - name: Promote ADR PRs to Shared Memory
+        if: |
+          github.event_name == 'pull_request' &&
+          github.event.action == 'closed' &&
+          github.event.pull_request.merged == true &&
+          contains(github.event.pull_request.labels.*.name, 'architecture-decision')
+        run: |
+          pip install github-dkg
+          github-dkg promote "${{ steps.ingest.outputs.turn-uri }}" \
+            --context-graph "${{ secrets.DKG_CONTEXT_GRAPH }}"
+        env:
+          DKG_TOKEN: ${{ secrets.DKG_TOKEN }}
+          DKG_BASE_URL: ${{ secrets.DKG_BASE_URL }}

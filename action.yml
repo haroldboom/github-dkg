@@ -1,0 +1,57 @@
+name: 'DKG Working Memory Ingest'
+description: 'Ingest GitHub issues, PRs, and review comments into DKG v10 Working Memory as Knowledge Assets'
+author: 'github-dkg'
+
+branding:
+  icon: 'database'
+  color: 'purple'
+
+inputs:
+  dkg-token:
+    description: 'DKG v10 node bearer token'
+    required: true
+  dkg-base-url:
+    description: 'DKG v10 node base URL (e.g. http://my-node:9200)'
+    required: true
+  dkg-context-graph:
+    description: 'Context Graph ID to write into'
+    required: true
+  github-token:
+    description: 'GitHub token for API access'
+    required: false
+    default: ${{ github.token }}
+  layer:
+    description: 'Memory layer — "wm" (Working Memory, private) or "swm" (Shared Working Memory, gossiped)'
+    required: false
+    default: 'wm'
+  event-type:
+    description: 'Which GitHub event triggered this action (issues, pull_request, pull_request_review). Auto-detected from GITHUB_EVENT_NAME if omitted.'
+    required: false
+    default: ''
+  item-number:
+    description: 'Issue or PR number to ingest. Auto-detected from the event payload if omitted.'
+    required: false
+    default: ''
+
+outputs:
+  turn-uri:
+    description: 'UAL of the Knowledge Asset written to Working Memory'
+    value: ${{ steps.ingest.outputs.turn-uri }}
+  layer:
+    description: 'Memory layer the asset was written to'
+    value: ${{ steps.ingest.outputs.layer }}
+
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  env:
+    DKG_TOKEN: ${{ inputs.dkg-token }}
+    DKG_BASE_URL: ${{ inputs.dkg-base-url }}
+    DKG_CONTEXT_GRAPH: ${{ inputs.dkg-context-graph }}
+    GITHUB_TOKEN: ${{ inputs.github-token }}
+    INPUT_LAYER: ${{ inputs.layer }}
+    INPUT_EVENT_TYPE: ${{ inputs.event-type }}
+    INPUT_ITEM_NUMBER: ${{ inputs.item-number }}
+    GITHUB_REPOSITORY: ${{ github.repository }}
+    GITHUB_EVENT_NAME: ${{ github.event_name }}
+    GITHUB_EVENT_PATH: ${{ github.event_path }}

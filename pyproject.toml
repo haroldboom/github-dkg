@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "github-dkg"
+version = "0.1.0"
+description = "Ingest GitHub issues, PRs, and review comments into DKG v10 Working Memory"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+    "httpx>=0.27",
+    "click>=8.1",
+]
+
+[project.optional-dependencies]
+action = []  # no extra deps; entrypoint uses only the base package
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "respx>=0.21",
+]
+
+[project.scripts]
+github-dkg = "github_dkg.cli:main"
+
+[project.urls]
+Repository = "https://github.com/spangers11/github-dkg"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/github_dkg"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.hatch.envs.default]
+dependencies = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "respx>=0.21",
+]
