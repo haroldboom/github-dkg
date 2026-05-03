@@ -15,7 +15,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-action = []  # no extra deps; entrypoint uses only the base package
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",

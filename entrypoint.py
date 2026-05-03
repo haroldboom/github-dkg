@@ -31,18 +31,26 @@ async def main() -> None:
         _fail("GITHUB_REPOSITORY not set or invalid")
     owner, repo = repo_full.split("/", 1)
 
-    # Resolve item number from event payload if not explicitly provided
-    item_number: int | None = int(item_number_env) if item_number_env else None
-    if item_number is None and event_path:
+    payload: dict = {}
+    if event_path:
         try:
             with open(event_path) as f:
                 payload = json.load(f)
-            item_number = (
-                payload.get("issue", {}).get("number")
-                or payload.get("pull_request", {}).get("number")
-            )
         except Exception:
-            pass
+            payload = {}
+
+    # Resolve item number from event payload if not explicitly provided
+    item_number: int | None = None
+    if item_number_env:
+        try:
+            item_number = int(item_number_env)
+        except ValueError:
+            _fail(f"INPUT_ITEM_NUMBER is not a valid integer: {item_number_env!r}")
+    if item_number is None:
+        item_number = (
+            payload.get("issue", {}).get("number")
+            or payload.get("pull_request", {}).get("number")
+        )
 
     if item_number is None:
         _fail("Could not determine issue/PR number from event payload. Set input.item-number explicitly.")
@@ -51,7 +59,14 @@ async def main() -> None:
     gh = GitHubClient(token=github_token)
     ingestor = GitHubDKGIngestor(dkg=dkg, github=gh, context_graph_id=context_graph, layer=layer)
 
-    is_pr = event_name in ("pull_request", "pull_request_review")
+    # Route to PR ingest for any event whose payload describes a PR. This catches
+    # pull_request, pull_request_target, pull_request_review, and the
+    # issue_comment events that fire on PRs (payload.issue.pull_request set).
+    is_pr = (
+        event_name in ("pull_request", "pull_request_target", "pull_request_review")
+        or "pull_request" in payload
+        or "pull_request" in payload.get("issue", {})
+    )
 
     if is_pr:
         resp = await ingestor.ingest_pull(owner, repo, item_number)

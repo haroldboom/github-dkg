@@ -5,7 +5,7 @@ WORKDIR /app
 COPY pyproject.toml LICENSE README.md ./
 COPY src/ ./src/
 
-RUN pip install --no-cache-dir -e ".[action]"
+RUN pip install --no-cache-dir -e .
 
 COPY entrypoint.py ./
 

@@ -26,7 +26,8 @@ jobs:
 
     steps:
       - name: Ingest to DKG Working Memory
-        uses: your-org/github-dkg@v0.1.0
+        id: ingest
+        uses: spangers11/github-dkg@v0.1.0
         with:
           dkg-token: ${{ secrets.DKG_TOKEN }}
           dkg-base-url: ${{ secrets.DKG_BASE_URL }}

@@ -28,7 +28,7 @@ github-dkg ingest-one owner/repo 42 --type issue --context-graph $DKG_CONTEXT_GR
 github-dkg ingest-one owner/repo 99 --type pr --context-graph $DKG_CONTEXT_GRAPH
 
 # Search ingested knowledge
-github-dkg search owner/repo "authentication bug" --context-graph $DKG_CONTEXT_GRAPH
+github-dkg search "authentication bug" --context-graph $DKG_CONTEXT_GRAPH
 
 # Promote a Working Memory asset to Shared Working Memory (SHARE)
 github-dkg promote dkg://wm/turn/abc123 --context-graph $DKG_CONTEXT_GRAPH
@@ -51,7 +51,8 @@ jobs:
   ingest:
     runs-on: ubuntu-latest
     steps:
-      - uses: your-org/github-dkg@v0.1.0
+      - uses: spangers11/github-dkg@v0.1.0
+        id: ingest
         with:
           dkg-token: ${{ secrets.DKG_TOKEN }}
           dkg-base-url: ${{ secrets.DKG_BASE_URL }}

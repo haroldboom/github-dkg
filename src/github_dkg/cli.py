@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 
 import click
@@ -57,13 +56,13 @@ def ingest(
         sys.exit(1)
     owner, repo_name = repo.split("/", 1)
 
-    async def run() -> None:
+    async def run() -> int:
         dkg, gh = _make_clients(dkg_token, dkg_url, github_token)
 
-        click.echo(f"Connecting to DKG node...")
+        click.echo("Connecting to DKG node...")
         if not await dkg.ping():
             click.echo("Error: DKG node unreachable or token invalid", err=True)
-            sys.exit(1)
+            return 1
 
         ingestor = GitHubDKGIngestor(
             dkg=dkg,
@@ -87,8 +86,10 @@ def ingest(
             click.echo(f"Errors ({len(result.errors)}):")
             for err in result.errors:
                 click.echo(f"  {err}", err=True)
+            return 1
+        return 0
 
-    asyncio.run(run())
+    sys.exit(asyncio.run(run()))
 
 
 @main.command()
@@ -144,11 +145,7 @@ def promote(
 
     async def run() -> None:
         dkg = DKGClient(base_url=dkg_url, token=dkg_token)
-        ingestor = GitHubDKGIngestor(
-            dkg=dkg,
-            github=GitHubClient(token=os.environ.get("GITHUB_TOKEN", "placeholder")),
-            context_graph_id=context_graph,
-        )
+        ingestor = GitHubDKGIngestor(dkg=dkg, context_graph_id=context_graph)
         resp = await ingestor.promote(turn_uri)
         click.echo(f"Promoted: {resp}")
 
@@ -156,14 +153,12 @@ def promote(
 
 
 @main.command()
-@click.argument("repo")
 @click.argument("query")
 @click.option("--context-graph", required=True, envvar="DKG_CONTEXT_GRAPH")
 @click.option("--limit", default=10, show_default=True)
 @click.option("--dkg-token", envvar="DKG_TOKEN", default=None)
 @click.option("--dkg-url", envvar="DKG_BASE_URL", default=None)
 def search(
-    repo: str,
     query: str,
     context_graph: str,
     limit: int,
