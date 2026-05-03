@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """github-dkg demo recording script.
 
 Runs the three demos that make up the bounty walkthrough video:
