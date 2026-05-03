@@ -4,6 +4,11 @@ Ingest GitHub issues, pull requests, and review comments into [DKG v10](https://
 
 Every issue and PR becomes a queryable, attributable Knowledge Asset in your DKG v10 node. Key decisions can be promoted to Shared Working Memory — making your team's engineering knowledge accessible to agents.
 
+## Demo
+
+- **Walkthrough notebook:** [`demo.ipynb`](demo.ipynb) — runs end-to-end against a built-in mock of GitHub and the DKG node, no tokens required. Open in [Colab](https://colab.research.google.com/github/spangers11/github-dkg/blob/master/demo.ipynb).
+- **Live recording script:** [`examples/demo_video.py`](examples/demo_video.py) — drives all three demos against a real DKG node and the GitHub API; this is the script behind the bounty walkthrough video.
+
 ## Install
 
 ```bash
@@ -84,6 +89,28 @@ async def main():
     await ingestor.promote(resp["turnUri"])
 
 asyncio.run(main())
+```
+
+## `--since` filtering
+
+`--since` accepts an ISO 8601 timestamp and limits ingest to items updated after that point.
+
+- **Issues:** filtered server-side by GitHub via the `since` parameter on `/issues`.
+- **Pull requests:** GitHub's `/pulls` endpoint has no `since` filter, so the package requests `sort=updated&direction=desc` and stops paginating once results fall below the cutoff. Net result: only PRs touched after `--since` are fetched and ingested.
+
+Comment-only updates (a new comment without an issue/PR body edit) still bump `updated_at`, so they're included.
+
+## Rate limiting
+
+`GitHubClient` raises `github_dkg.github_client.GitHubRateLimitError` when GitHub returns `403`/`429` with `X-RateLimit-Remaining: 0`. The exception carries `reset_at` (unix timestamp) so callers can decide whether to back off, sleep, or fail. Authenticated tokens get 5,000 requests/hour; bulk-ingesting a large repo with many comment-heavy PRs can approach this limit.
+
+```python
+from github_dkg.github_client import GitHubRateLimitError
+
+try:
+    result = await ingestor.ingest_repo("OriginTrail", "dkg-v9")
+except GitHubRateLimitError as e:
+    print(f"Rate limited; resets at unix={e.reset_at}")
 ```
 
 ## Memory layers
