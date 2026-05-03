@@ -25,7 +25,7 @@ dev = [
 github-dkg = "github_dkg.cli:main"
 
 [project.urls]
-Repository = "https://github.com/spangers11/github-dkg"
+Repository = "https://github.com/haroldboom/github-dkg"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/github_dkg"]

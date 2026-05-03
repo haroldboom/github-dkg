@@ -208,7 +208,7 @@ async def main() -> None:
     print("  All ingested items are now Knowledge Assets in DKG Working Memory.")
     print(f"  Context Graph: {CONTEXT_GRAPH}\n")
     print("  Install :  pip install github-dkg")
-    print("  GitHub  :  https://github.com/spangers11/github-dkg")
+    print("  GitHub  :  https://github.com/haroldboom/github-dkg")
     print("  Bounty  :  cfi-dkgv10-r1")
     print()
 

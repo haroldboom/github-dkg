@@ -6,7 +6,7 @@ Every issue and PR becomes a queryable, attributable Knowledge Asset in your DKG
 
 ## Demo
 
-- **Walkthrough notebook:** [`demo.ipynb`](demo.ipynb) — runs end-to-end against a built-in mock of GitHub and the DKG node, no tokens required. Open in [Colab](https://colab.research.google.com/github/spangers11/github-dkg/blob/master/demo.ipynb).
+- **Walkthrough notebook:** [`demo.ipynb`](demo.ipynb) — runs end-to-end against a built-in mock of GitHub and the DKG node, no tokens required. Open in [Colab](https://colab.research.google.com/github/haroldboom/github-dkg/blob/master/demo.ipynb).
 - **Live recording script:** [`examples/demo_video.py`](examples/demo_video.py) — drives all three demos against a real DKG node and the GitHub API; this is the script behind the bounty walkthrough video.
 
 ## Install
@@ -56,7 +56,7 @@ jobs:
   ingest:
     runs-on: ubuntu-latest
     steps:
-      - uses: spangers11/github-dkg@v0.1.0
+      - uses: haroldboom/github-dkg@v0.1.0
         id: ingest
         with:
           dkg-token: ${{ secrets.DKG_TOKEN }}
