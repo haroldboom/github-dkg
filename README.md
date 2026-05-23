@@ -1,5 +1,10 @@
 # github-dkg
 
+[![CI](https://github.com/haroldboom/github-dkg/actions/workflows/ci.yml/badge.svg)](https://github.com/haroldboom/github-dkg/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/github-dkg.svg)](https://pypi.org/project/github-dkg/)
+[![Python](https://img.shields.io/pypi/pyversions/github-dkg.svg)](https://pypi.org/project/github-dkg/)
+[![License](https://img.shields.io/pypi/l/github-dkg.svg)](https://github.com/haroldboom/github-dkg/blob/master/LICENSE)
+
 Ingest GitHub issues, pull requests, and review comments into [DKG v10](https://docs.origintrail.io) Working Memory as Knowledge Assets.
 
 Every issue and PR becomes a queryable, attributable Knowledge Asset in your DKG v10 node. Key decisions can be promoted to Shared Working Memory — making your team's engineering knowledge accessible to agents.
