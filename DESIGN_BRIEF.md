@@ -190,3 +190,16 @@ One intentional deviation: the CLI uses `layer` as shorthand for `--layer wm|swm
 ## 9. Maintenance commitment
 
 Six-month support window from submission date. Issues and pull requests will be reviewed within 5 business days. The package follows semantic versioning; breaking changes will be major version bumps with migration notes.
+
+---
+
+## 10. Positioning vs other Round 1 submissions
+
+The Round 1 queue covers several distinct integration shapes. This submission is intentionally complementary, not competing:
+
+- **Other source-side integrations** (`dkg-arxiv` for academic papers, `polymarket-analysis` for prediction markets, `tracabot` for Telegram moderation) populate DKG from substrates that are external to the user's own workflow. `github-dkg` instead taps the *team's own* historical knowledge — issue threads, PR descriptions, review comments — the highest-signal tacit knowledge inside any software organisation. No overlap with existing source-ingest entries.
+- **Agent-plugin submissions** (`openclaw-working-memory`, `dkg-wm-bridge`, `aipharmagent`) capture artifacts from live agent sessions in real time. `github-dkg` works *without* an agent: the CLI can backfill an entire repository's history; the bundled Docker GitHub Action continues capture on every issue / pull_request / pull_request_review event. Together with an agent-plugin, an org gets both pre-existing org knowledge and ongoing agent output in the same Context Graph.
+- **Sister submission `langchain-dkg`** ([PR #4](https://github.com/OriginTrail/dkg-integrations/pull/4)) provides the read-side LangChain memory + retriever adapter. Where `github-dkg` writes engineering tacit knowledge into the substrate, `langchain-dkg` lets any LangChain agent query and reason over it. The two halves close a write/read loop.
+- **Platform-level governance submissions** (`agience-flare`, `repnet`) govern *what* may be projected into DKG. `github-dkg` runs one layer below: it produces the per-item Knowledge Assets that a governance layer (or a human reviewer through the bundled label-gated workflow) can then promote to SWM.
+
+This entry is the only GitHub-knowledge ingestion path in the queue, and the only Round 1 submission whose primary distribution surface includes a Docker GitHub Action rather than just a CLI or MCP server.
