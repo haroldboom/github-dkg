@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "github-dkg"
-version = "0.1.1"
+version = "0.1.2"
 description = "Ingest GitHub issues, PRs, and review comments into DKG v10 Working Memory"
 readme = "README.md"
 license = { text = "MIT" }

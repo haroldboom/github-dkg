@@ -5,4 +5,4 @@ from .github_client import GitHubClient
 from .ingestor import GitHubDKGIngestor
 
 __all__ = ["DKGClient", "GitHubClient", "GitHubDKGIngestor"]
-__version__ = "0.1.1"
+__version__ = "0.1.2"
