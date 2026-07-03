@@ -187,8 +187,8 @@ async def demo_search(dkg: DKGClient) -> None:
 async def main() -> None:
     w = 62
     print("\n╔" + "═" * w + "╗")
-    print("║  github-dkg  —  GitHub knowledge → DKG v10 Working Memory ║")
-    print("║  Bounty tag: cfi-dkgv10-r1   |   pip install github-dkg   ║")
+    print("║  github-dkg  —  GitHub knowledge → DKG v10 Working Memory    ║")
+    print("║  Bounty tag: cfi-dkgv10-r1   |   pip install github-dkg      ║")
     print("╚" + "═" * w + "╝\n")
 
     if not DKG_TOKEN:
