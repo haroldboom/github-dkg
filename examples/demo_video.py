@@ -97,6 +97,16 @@ async def demo_single_item(ingestor: GitHubDKGIngestor, gh: GitHubClient) -> str
     if pr_number is not None:
         step(f"Ingesting PR #{pr_number} ...")
         pause(0.4)
+        if issue_number is None:
+            pr = await gh.get_pull(owner, repo, pr_number)
+            markdown = format_pull_request(pr, [], [], owner, repo)
+            info("Formatted Markdown sent to /api/memory/turn:")
+            print()
+            for line in markdown.splitlines()[:10]:
+                print(f"      {line}")
+            print("      ...")
+            print()
+            pause(0.6)
         resp = await ingestor.ingest_pull(owner, repo, pr_number)
         last_uri = resp.get("turnUri")
         ok(f"UAL    : {last_uri}")
@@ -153,12 +163,18 @@ async def demo_search(dkg: DKGClient) -> None:
         pause(0.3)
         result = await dkg.memory_search(
             context_graph_id=CONTEXT_GRAPH, query=q, limit=3,
+            memory_layers=["wm", "swm"],
         )
         count = result.get("resultCount", 0)
         ok(f"{count} result(s)")
         for item in result.get("results", [])[:3]:
             sim = item.get("similarity", 0.0)
-            label = item.get("label") or item.get("entityUri", "")
+            snippet_lines = (item.get("snippet") or "").splitlines()
+            label = (
+                snippet_lines[0].replace("**", "")
+                if snippet_lines
+                else item.get("label") or item.get("entityUri", "")
+            )
             print(f"      [{sim:.2f}]  {label[:72]}")
         print()
         pause(0.5)

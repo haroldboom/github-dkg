@@ -156,12 +156,20 @@ def promote(
 @click.argument("query")
 @click.option("--context-graph", required=True, envvar="DKG_CONTEXT_GRAPH")
 @click.option("--limit", default=10, show_default=True)
+@click.option(
+    "--layers",
+    default="wm,swm",
+    show_default=True,
+    help="Comma-separated memory layers to search. Newer node builds return "
+    "nothing when memoryLayers is omitted, so layers are always sent.",
+)
 @click.option("--dkg-token", envvar="DKG_TOKEN", default=None)
 @click.option("--dkg-url", envvar="DKG_BASE_URL", default=None)
 def search(
     query: str,
     context_graph: str,
     limit: int,
+    layers: str,
     dkg_token: str | None,
     dkg_url: str | None,
 ) -> None:
@@ -173,6 +181,7 @@ def search(
             context_graph_id=context_graph,
             query=query,
             limit=limit,
+            memory_layers=[l.strip() for l in layers.split(",") if l.strip()],
         )
         count = result.get("resultCount", 0)
         click.echo(f"{count} result(s) for '{query}':")
