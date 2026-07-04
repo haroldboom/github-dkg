@@ -18,10 +18,24 @@ async def main() -> None:
     from github_dkg.ingestor import GitHubDKGIngestor
 
     dkg_token = os.environ.get("DKG_TOKEN", "")
-    dkg_url = os.environ.get("DKG_BASE_URL", "http://localhost:9200")
+    dkg_url = os.environ.get("DKG_BASE_URL", "")
     context_graph = os.environ.get("DKG_CONTEXT_GRAPH", "")
     github_token = os.environ.get("GITHUB_TOKEN", "")
     layer = os.environ.get("INPUT_LAYER", "wm")
+
+    missing = [
+        env_name
+        for env_name, value in (
+            ("DKG_TOKEN", dkg_token),
+            ("GITHUB_TOKEN", github_token),
+            ("DKG_CONTEXT_GRAPH", context_graph),
+            ("DKG_BASE_URL", dkg_url),
+        )
+        if not value
+    ]
+    if missing:
+        _fail(f"Missing required environment variable(s): {', '.join(missing)}")
+
     repo_full = os.environ.get("GITHUB_REPOSITORY", "")  # owner/repo
     event_name = os.environ.get("INPUT_EVENT_TYPE") or os.environ.get("GITHUB_EVENT_NAME", "")
     item_number_env = os.environ.get("INPUT_ITEM_NUMBER", "")

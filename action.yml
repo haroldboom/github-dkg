@@ -36,10 +36,8 @@ inputs:
 outputs:
   turn-uri:
     description: 'UAL of the Knowledge Asset written to Working Memory'
-    value: ${{ steps.ingest.outputs.turn-uri }}
   layer:
     description: 'Memory layer the asset was written to'
-    value: ${{ steps.ingest.outputs.layer }}
 
 runs:
   using: 'docker'

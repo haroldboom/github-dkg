@@ -16,12 +16,31 @@ def _username(user: dict[str, Any] | None) -> str:
     return user.get("login", "unknown")
 
 
+def _indent_continuation(text: str, indent: str = "  ") -> str:
+    """Indent every line after the first so multi-line user-supplied bodies
+    cannot fake top-level attribution lines (e.g. a "**Author:** ..." line).
+
+    Single-line text is returned unchanged.
+    """
+    lines = text.splitlines()
+    if len(lines) <= 1:
+        return text
+    return "\n".join([lines[0], *(f"{indent}{line}" for line in lines[1:])])
+
+
 def format_issue(
     issue: dict[str, Any],
     comments: list[dict[str, Any]],
     owner: str,
     repo: str,
+    total_comments: int | None = None,
 ) -> str:
+    """Render an issue (plus up to the given comments) as Markdown.
+
+    ``total_comments`` is the number of comments that exist on the issue
+    (as known by the caller). When it exceeds ``len(comments)`` a
+    "… N more comment(s) omitted" marker is appended.
+    """
     number = issue["number"]
     title = issue.get("title", "")
     author = _username(issue.get("user"))
@@ -52,7 +71,12 @@ def format_issue(
             when = (c.get("created_at") or "")[:10]
             text = (c.get("body") or "").strip()
             if text:
-                lines += [f"- **{commenter}** ({when}): {text}"]
+                lines += [
+                    f"- **{commenter}** ({when}): {_indent_continuation(text)}"
+                ]
+        if total_comments is not None and total_comments > len(comments):
+            omitted = total_comments - len(comments)
+            lines.append(f"- … {omitted} more comment(s) omitted")
 
     return "\n".join(lines)
 
@@ -63,7 +87,14 @@ def format_pull_request(
     inline_comments: list[dict[str, Any]],
     owner: str,
     repo: str,
+    total_reviews: int | None = None,
 ) -> str:
+    """Render a PR (plus up to the given reviews/inline comments) as Markdown.
+
+    ``total_reviews`` is the number of reviews that exist on the PR (as known
+    by the caller). When it exceeds ``len(reviews)`` a
+    "… N more review(s) omitted" marker is appended.
+    """
     number = pr["number"]
     title = pr.get("title", "")
     author = _username(pr.get("user"))
@@ -113,8 +144,11 @@ def format_pull_request(
             submitted = (rev.get("submitted_at") or "")[:10]
             summary = f"- **{reviewer}** {rev_state} ({submitted})"
             if rev_body:
-                summary += f": {rev_body}"
+                summary += f": {_indent_continuation(rev_body)}"
             lines.append(summary)
+        if total_reviews is not None and total_reviews > len(reviews):
+            omitted = total_reviews - len(reviews)
+            lines.append(f"- … {omitted} more review(s) omitted")
 
     # Aggregate inline review comments by file path
     if inline_comments:
@@ -124,7 +158,9 @@ def format_pull_request(
             commenter = _username(ic.get("user"))
             text = (ic.get("body") or "").strip()
             if text:
-                by_path.setdefault(path, []).append(f"{commenter}: {text}")
+                by_path.setdefault(path, []).append(
+                    f"{commenter}: {_indent_continuation(text, indent='    ')}"
+                )
         if by_path:
             lines += ["", "**Inline review comments:**"]
             for path, cmts in by_path.items():

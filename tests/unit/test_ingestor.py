@@ -1,13 +1,13 @@
 """Unit tests for GitHubDKGIngestor with mocked HTTP."""
 
+import asyncio
+
 import pytest
-import respx
-import httpx
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 from github_dkg.client import DKGClient
-from github_dkg.github_client import GitHubClient
-from github_dkg.ingestor import GitHubDKGIngestor
+from github_dkg.github_client import GitHubClient, GitHubRateLimitError
+from github_dkg.ingestor import GitHubDKGIngestor, _sanitize_sub_graph_name
 
 
 FAKE_TURN_RESP = {
@@ -149,3 +149,117 @@ async def test_promote_calls_assertion_promote(ingestor, dkg_client):
         context_graph_id="cg-test-123",
     )
     assert resp == mock_resp
+
+
+@pytest.mark.asyncio
+async def test_promote_uses_whole_uri_when_no_slash(ingestor, dkg_client):
+    with patch.object(
+        dkg_client, "assertion_promote", AsyncMock(return_value={})
+    ) as mock_promote:
+        await ingestor.promote("bare-assertion-name")
+
+    mock_promote.assert_called_once_with(
+        name="bare-assertion-name",
+        context_graph_id="cg-test-123",
+    )
+
+
+def test_sanitize_sub_graph_name():
+    assert _sanitize_sub_graph_name("owner-repo-issue-1") == "owner-repo-issue-1"
+    assert _sanitize_sub_graph_name("own/er-re/po-pr-2") == "own-er-re-po-pr-2"
+    assert _sanitize_sub_graph_name("a b:c/d") == "a-b-c-d"
+
+
+@pytest.mark.asyncio
+async def test_ingest_issue_passes_sanitized_sub_graph_name(
+    ingestor, dkg_client, github_client
+):
+    turn_mock = AsyncMock(return_value=FAKE_TURN_RESP)
+    with (
+        patch.object(github_client, "get_issue", AsyncMock(return_value=FAKE_ISSUE)),
+        patch.object(
+            github_client, "list_issue_comments", AsyncMock(return_value=[])
+        ),
+        patch.object(dkg_client, "memory_turn", turn_mock),
+    ):
+        await ingestor.ingest_issue("own/er", "repo", 1)
+
+    kwargs = turn_mock.call_args.kwargs
+    assert kwargs["sub_graph_name"] == "own-er-repo-issue-1"
+    assert "/" not in kwargs["sub_graph_name"]
+
+
+@pytest.mark.asyncio
+async def test_ingest_pull_passes_sub_graph_name(ingestor, dkg_client, github_client):
+    turn_mock = AsyncMock(return_value=FAKE_TURN_RESP)
+    with (
+        patch.object(github_client, "get_pull", AsyncMock(return_value=FAKE_PR)),
+        patch.object(github_client, "list_pull_reviews", AsyncMock(return_value=[])),
+        patch.object(github_client, "list_pull_comments", AsyncMock(return_value=[])),
+        patch.object(dkg_client, "memory_turn", turn_mock),
+    ):
+        await ingestor.ingest_pull("owner", "repo", 2)
+
+    assert turn_mock.call_args.kwargs["sub_graph_name"] == "owner-repo-pr-2"
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_reraises_and_cancels_remaining(
+    ingestor, dkg_client, github_client
+):
+    """GitHubRateLimitError is not swallowed into result.errors; in-flight
+    work is cancelled and the partial result is attached to the exception."""
+    cancelled: list[int] = []
+
+    async def fake_list_issues(*args, **kwargs):
+        yield {**FAKE_ISSUE, "number": 1}
+        yield {**FAKE_ISSUE, "number": 2}
+
+    async def fake_list_comments(owner, repo, number, **kwargs):
+        if number == 1:
+            # Let the second task start before blowing up.
+            await asyncio.sleep(0.01)
+            raise GitHubRateLimitError(1234567890)
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            cancelled.append(number)
+            raise
+        return []
+
+    with (
+        patch.object(github_client, "list_issues", fake_list_issues),
+        patch.object(github_client, "list_issue_comments", fake_list_comments),
+        patch.object(dkg_client, "memory_turn", AsyncMock(return_value=FAKE_TURN_RESP)),
+    ):
+        with pytest.raises(GitHubRateLimitError) as excinfo:
+            await ingestor.ingest_repo("owner", "repo", include_pulls=False)
+
+    assert cancelled == [2]
+    partial = excinfo.value.partial_result
+    assert partial.issues_ingested == 0
+    assert partial.errors == []
+
+
+@pytest.mark.asyncio
+async def test_listing_error_attaches_partial_result(
+    ingestor, dkg_client, github_client
+):
+    """Errors from the listing itself propagate, carrying results so far."""
+
+    async def failing_list_issues(*args, **kwargs):
+        yield FAKE_ISSUE
+        raise RuntimeError("listing exploded")
+
+    with (
+        patch.object(github_client, "list_issues", failing_list_issues),
+        patch.object(
+            github_client, "list_issue_comments", AsyncMock(return_value=[])
+        ),
+        patch.object(dkg_client, "memory_turn", AsyncMock(return_value=FAKE_TURN_RESP)),
+    ):
+        with pytest.raises(RuntimeError, match="listing exploded") as excinfo:
+            await ingestor.ingest_repo("owner", "repo", include_pulls=False)
+
+    partial = excinfo.value.partial_result
+    assert partial.issues_ingested + len(partial.errors) <= 1

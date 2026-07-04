@@ -57,5 +57,7 @@ async def test_search_after_ingest(dkg, gh, context_graph_id):
     """Ingest then immediately search — result count should be >= 1."""
     ingestor = GitHubDKGIngestor(dkg=dkg, github=gh, context_graph_id=context_graph_id)
     await ingestor.ingest_issue("OriginTrail", "dkg-node", 1)
-    result = await dkg.memory_search(context_graph_id, "DKG", limit=5)
+    result = await dkg.memory_search(
+        context_graph_id, "DKG", limit=5, memory_layers=["wm", "swm"]
+    )
     assert result.get("resultCount", 0) >= 1

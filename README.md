@@ -29,6 +29,9 @@ export DKG_BASE_URL=http://localhost:9200
 export DKG_CONTEXT_GRAPH=your-context-graph-id
 export GITHUB_TOKEN=your-github-token
 
+# Create the Context Graph on the node — it must exist before ingesting into it
+github-dkg create-context-graph my-repo-knowledge --id $DKG_CONTEXT_GRAPH
+
 # Bulk-ingest all issues and PRs from a repository
 github-dkg ingest owner/repo --context-graph $DKG_CONTEXT_GRAPH
 
@@ -38,12 +41,14 @@ github-dkg ingest-one owner/repo 42 --type issue --context-graph $DKG_CONTEXT_GR
 # Ingest a single PR
 github-dkg ingest-one owner/repo 99 --type pr --context-graph $DKG_CONTEXT_GRAPH
 
-# Search ingested knowledge
-github-dkg search "authentication bug" --context-graph $DKG_CONTEXT_GRAPH
+# Search ingested knowledge (searches layers wm,swm by default; override with --layers)
+github-dkg search "authentication bug" --context-graph $DKG_CONTEXT_GRAPH --layers wm,swm
 
 # Promote a Working Memory asset to Shared Working Memory (SHARE)
 github-dkg promote dkg://wm/turn/abc123 --context-graph $DKG_CONTEXT_GRAPH
 ```
+
+Every command that takes `--context-graph` also reads it from the `DKG_CONTEXT_GRAPH` environment variable, so you can set it once and omit the flag. The Context Graph must already exist on the node (create it with `create-context-graph`) before ingesting into it.
 
 ## GitHub Action
 
@@ -62,7 +67,7 @@ jobs:
   ingest:
     runs-on: ubuntu-latest
     steps:
-      - uses: haroldboom/github-dkg@v0.1.0
+      - uses: haroldboom/github-dkg@v0.1.5
         id: ingest
         with:
           dkg-token: ${{ secrets.DKG_TOKEN }}
@@ -71,6 +76,8 @@ jobs:
 ```
 
 See `examples/workflow.yml` for a complete example including automatic promotion of architecture-decision PRs to Shared Working Memory.
+
+> **Note:** the runner executing the Action must have network access to your DKG node — use a self-hosted runner on the node's network, or a publicly reachable node URL. A `localhost` DKG node is not reachable from GitHub-hosted runners.
 
 ## Python API
 
@@ -121,12 +128,20 @@ except GitHubRateLimitError as e:
 
 ## Memory layers
 
-| Layer | Flag | Visibility |
-|---|---|---|
-| Working Memory | `--layer wm` (default) | Private to your node |
-| Shared Working Memory | `--layer swm` | Gossiped across the paranet |
+| Layer | Write flag | Search flag | Visibility |
+|---|---|---|---|
+| Working Memory | `--layer wm` (default) | `--layers wm` | Private to your node |
+| Shared Working Memory | `--layer swm` | `--layers swm` | Gossiped across the paranet |
+
+`search --layers` takes a comma-separated list and defaults to `wm,swm` (both layers). The layers are always sent explicitly because newer node builds return zero results when `memoryLayers` is omitted; the Python API (`DKGClient.memory_search`) applies the same `["wm", "swm"]` default when `memory_layers` is `None`.
 
 Promotion from Working Memory to Shared Working Memory is always explicit — nothing is shared automatically.
+
+## Node compatibility
+
+Verified against DKG v10 node build `10.0.2` (July 2026). Notably, promotion on current nodes is an **async job**: the client submits `POST /api/knowledge-assets/{name}/swm/share-async` and polls the job until it succeeds or fails (older builds fall back to the legacy `/api/assertion/{name}/promote-async` routes; the old synchronous `/promote` route is gone). `DKGClient.assertion_promote` / `github-dkg promote` handle this transparently and return the final job view.
+
+Also note: on node `10.0.2`, `/api/query` (raw SPARQL) cannot see Working Memory (`wm`) quads — the RFC-29 isolation gate is fail-closed in this build. `github-dkg search` uses `memory/search`, which **does** return `wm` results, so search is unaffected.
 
 ## License
 

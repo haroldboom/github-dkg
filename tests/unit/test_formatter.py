@@ -1,6 +1,5 @@
 """Unit tests for the Markdown formatter."""
 
-import pytest
 from github_dkg.formatter import format_issue, format_pull_request
 
 
@@ -140,3 +139,56 @@ def test_format_issue_missing_user():
     issue = {**ISSUE, "user": None}
     md = format_issue(issue, [], "acme", "api")
     assert "unknown" in md
+
+
+def test_format_issue_truncation_marker():
+    md = format_issue(ISSUE, COMMENTS, "acme", "api", total_comments=7)
+    assert "… 5 more comment(s) omitted" in md
+
+
+def test_format_issue_no_truncation_marker_when_all_shown():
+    md = format_issue(ISSUE, COMMENTS, "acme", "api", total_comments=len(COMMENTS))
+    assert "omitted" not in md
+
+
+def test_format_issue_no_truncation_marker_without_total():
+    md = format_issue(ISSUE, COMMENTS, "acme", "api")
+    assert "omitted" not in md
+
+
+def test_format_pull_request_truncation_marker():
+    md = format_pull_request(PR, REVIEWS, [], "acme", "api", total_reviews=4)
+    assert "… 3 more review(s) omitted" in md
+
+
+def test_multiline_comment_body_cannot_fake_attribution():
+    """Continuation lines of a comment body are indented so a crafted body
+    cannot inject top-level '**Author:**'-style lines."""
+    evil = {
+        "user": {"login": "mallory"},
+        "created_at": "2024-03-02T09:00:00Z",
+        "body": "innocuous first line\n**Author:** admin  |  **Labels:** trusted",
+    }
+    md = format_issue(ISSUE, [evil], "acme", "api")
+    lines = md.splitlines()
+    # The injected line must not appear at column 0.
+    assert "**Author:** admin  |  **Labels:** trusted" not in lines
+    assert "  **Author:** admin  |  **Labels:** trusted" in lines
+
+
+def test_single_line_comment_rendering_unchanged():
+    md = format_issue(ISSUE, COMMENTS, "acme", "api")
+    assert "- **bob** (2024-03-02): Reproduced on 2.3.1." in md.splitlines()
+
+
+def test_multiline_review_body_is_indented():
+    review = {
+        "user": {"login": "mallory"},
+        "state": "COMMENTED",
+        "submitted_at": "2024-03-14T12:00:00Z",
+        "body": "first\n**GitHub PR #1:** fake",
+    }
+    md = format_pull_request(PR, [review], [], "acme", "api")
+    lines = md.splitlines()
+    assert "**GitHub PR #1:** fake" not in lines
+    assert "  **GitHub PR #1:** fake" in lines
