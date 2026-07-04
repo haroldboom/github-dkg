@@ -137,6 +137,52 @@ except GitHubRateLimitError as e:
 
 Promotion from Working Memory to Shared Working Memory is always explicit — nothing is shared automatically.
 
+## Verifiable Memory (preview)
+
+Targets bounty Round 2. On node build `10.0.2` a Knowledge Asset can graduate from private Working Memory all the way to an on-chain, trust-stamped record — the **trust gradient**: `SelfAttested (0) → Endorsed (1) → PartiallyVerified (2) → ConsensusVerified (3)`.
+
+> **Prerequisites:** the node's wallet must hold TRAC + gas on the target chain and be authorized to publish. Without that, `vm/publish` is rejected with `VM_PUBLISH_PRECONDITION`.
+
+### Publish a decision
+
+`publish-decision` takes a decision-bearing issue or PR (an ADR, a "we're doing X" thread) and runs the full flow in one shot: fetch from GitHub → build minimal schema.org RDF quads → create draft KA → write quads → finalize (Merkle-sealed, EIP-712 signed) → promote to Shared Working Memory → publish to Verifiable Memory (on-chain mint).
+
+```bash
+github-dkg publish-decision owner/repo 42 --type pr --context-graph my-graph --epochs 3
+# Published pr #42 (confirmed):
+#   UAL:        did:dkg:otp:2043/0x.../9
+#   txHash:     0x...
+#   merkleRoot: 0x...
+```
+
+Each decision becomes `urn:github:{owner}/{repo}/{kind}/{n}` with `schema:name`, `schema:url`, `schema:author`, `schema:dateCreated`, `schema:datePublished` (merge/close date), `schema:text` (body, truncated to 4,000 chars) and `schema:isPartOf` the repo URN. From Python: `GitHubDKGIngestor.publish_decision(...)` returns the publish response merged with the seal fields.
+
+### Endorse and verify
+
+```bash
+# Endorse a published asset by UAL — trust level stamps Endorsed (1).
+# Endorsement triples ride the next publish batch.
+github-dkg endorse "did:dkg:otp:2043/0x.../9" --context-graph my-graph
+
+# Request network verification of a Verifiable Memory batch.
+github-dkg verify-decision VM_ID BATCH_ID --context-graph my-graph --required-signatures 3
+# Verification status: verified | partial | no_quorum  (+ signer count)
+```
+
+A quorum shortfall (`partial` / `no_quorum`) is reported as a status with exit code 1, not an error.
+
+### Query the trust gradient (oracle)
+
+`oracle` runs a trust-filtered SPARQL query against the `verifiable-memory` view — ask only for knowledge that has reached a minimum trust level:
+
+```bash
+github-dkg oracle "monorepo" --context-graph my-graph --min-trust endorsed --limit 5
+```
+
+`--min-trust` accepts `0-3` or a name (`selfAttested`, `endorsed`, `partiallyVerified`, `consensusVerified`); names are normalized to ints on the wire. Every answer carries a provenance footer (`contextGraphId`, `view`, `minTrust`) so downstream consumers can see exactly what trust bar the results cleared.
+
+Client-level building blocks are also exposed on `DKGClient`: `ka_create`, `ka_write`, `ka_finalize`, `vm_publish` (raises `DKGPublishError` with the node's error body attached; a 207 "minted but Context Graph binding failed" is returned, not raised), `endorse`, `request_verification`, `kc_metadata` (on-chain merkleRoot/author lookups), and `query(..., view="verifiable-memory", min_trust=...)`.
+
 ## Node compatibility
 
 Verified against DKG v10 node build `10.0.2` (July 2026). Notably, promotion on current nodes is an **async job**: the client submits `POST /api/knowledge-assets/{name}/swm/share-async` and polls the job until it succeeds or fails (older builds fall back to the legacy `/api/assertion/{name}/promote-async` routes; the old synchronous `/promote` route is gone). `DKGClient.assertion_promote` / `github-dkg promote` handle this transparently and return the final job view.

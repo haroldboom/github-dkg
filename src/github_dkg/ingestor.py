@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .client import DKGClient
+from .decisions import decision_to_quads
 from .formatter import format_issue, format_pull_request
 from .github_client import GitHubClient, GitHubRateLimitError
 
@@ -164,6 +165,48 @@ class GitHubDKGIngestor:
             name=name,
             context_graph_id=self._context_graph_id,
         )
+
+    async def publish_decision(
+        self,
+        owner: str,
+        repo: str,
+        number: int,
+        kind: str,
+        publish_epochs: int | None = None,
+    ) -> dict[str, Any]:
+        """Publish a decision-bearing issue or PR to Verifiable Memory.
+
+        Orchestrates the full trust-gradient flow against the node:
+        fetch the item from GitHub, build minimal schema.org decision quads,
+        then ka_create → ka_write → ka_finalize (seal) → SWM share
+        (async promote) → vm/publish (on-chain mint).
+
+        Returns the vm/publish response merged over the finalize seal fields
+        (merkleRoot, authorAddress, eip712Digest, ...). Raises
+        DKGPublishError / DKGPromoteError on the corresponding step failures.
+        Note vm/publish 207 (minted but Context Graph binding failed) is
+        returned, not raised — the mint succeeded.
+        """
+        gh = self._require_github()
+        if kind == "issue":
+            item = await gh.get_issue(owner, repo, number)
+        elif kind == "pr":
+            item = await gh.get_pull(owner, repo, number)
+        else:
+            raise ValueError(f"kind must be 'issue' or 'pr', got {kind!r}")
+
+        quads = decision_to_quads(item, owner, repo, kind)
+        name = _sanitize_sub_graph_name(f"{owner}-{repo}-{kind}-{number}-decision")
+        cg = self._context_graph_id
+
+        await self._dkg.ka_create(name=name, context_graph_id=cg)
+        await self._dkg.ka_write(name=name, context_graph_id=cg, quads=quads)
+        seal = await self._dkg.ka_finalize(name=name, context_graph_id=cg)
+        await self._dkg.assertion_promote(name=name, context_graph_id=cg)
+        published = await self._dkg.vm_publish(
+            name=name, context_graph_id=cg, publish_epochs=publish_epochs
+        )
+        return {**seal, **published}
 
     # ------------------------------------------------------------------
     # Internal helpers

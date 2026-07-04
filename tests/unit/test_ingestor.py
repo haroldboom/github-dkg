@@ -1,11 +1,14 @@
 """Unit tests for GitHubDKGIngestor with mocked HTTP."""
 
 import asyncio
+import json
 
+import httpx
 import pytest
+import respx
 from unittest.mock import AsyncMock, patch
 
-from github_dkg.client import DKGClient
+from github_dkg.client import DKGClient, DKGPublishError
 from github_dkg.github_client import GitHubClient, GitHubRateLimitError
 from github_dkg.ingestor import GitHubDKGIngestor, _sanitize_sub_graph_name
 
@@ -201,6 +204,107 @@ async def test_ingest_pull_passes_sub_graph_name(ingestor, dkg_client, github_cl
         await ingestor.ingest_pull("owner", "repo", 2)
 
     assert turn_mock.call_args.kwargs["sub_graph_name"] == "owner-repo-pr-2"
+
+
+_DKG = "http://localhost:9200"
+_KA = f"{_DKG}/api/knowledge-assets/owner-repo-issue-1-decision"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_publish_decision_orchestrates_full_flow(ingestor):
+    """create → write → finalize → SWM share → vm/publish, in that order,
+    returning the publish response merged over the seal."""
+    respx.get("https://api.github.com/repos/owner/repo/issues/1").mock(
+        return_value=httpx.Response(200, json=FAKE_ISSUE)
+    )
+    respx.post(f"{_DKG}/api/knowledge-assets").mock(
+        return_value=httpx.Response(
+            200, json={"name": "owner-repo-issue-1-decision", "status": "draft-open"}
+        )
+    )
+    write = respx.post(f"{_KA}/wm/write").mock(
+        return_value=httpx.Response(200, json={"written": 7})
+    )
+    respx.post(f"{_KA}/wm/finalize").mock(
+        return_value=httpx.Response(
+            200, json={"merkleRoot": "0xroot", "authorAddress": "0xauthor"}
+        )
+    )
+    respx.post(f"{_KA}/swm/share-async").mock(
+        return_value=httpx.Response(200, json={"jobId": "job-1", "state": "queued"})
+    )
+    respx.get(f"{_DKG}/api/knowledge-assets/swm/share-jobs/job-1").mock(
+        return_value=httpx.Response(200, json={"jobId": "job-1", "state": "succeeded"})
+    )
+    respx.post(f"{_KA}/vm/publish").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "kaId": "ka-9",
+                "status": "confirmed",
+                "ual": "did:dkg:otp:2043/0xabc/9",
+                "txHash": "0xtx",
+            },
+        )
+    )
+
+    result = await ingestor.publish_decision("owner", "repo", 1, kind="issue")
+
+    # Publish response merged over the seal fields.
+    assert result["ual"] == "did:dkg:otp:2043/0xabc/9"
+    assert result["txHash"] == "0xtx"
+    assert result["merkleRoot"] == "0xroot"
+    assert result["authorAddress"] == "0xauthor"
+
+    paths = [call.request.url.path for call in respx.calls]
+    assert paths == [
+        "/repos/owner/repo/issues/1",
+        "/api/knowledge-assets",
+        "/api/knowledge-assets/owner-repo-issue-1-decision/wm/write",
+        "/api/knowledge-assets/owner-repo-issue-1-decision/wm/finalize",
+        "/api/knowledge-assets/owner-repo-issue-1-decision/swm/share-async",
+        "/api/knowledge-assets/swm/share-jobs/job-1",
+        "/api/knowledge-assets/owner-repo-issue-1-decision/vm/publish",
+    ]
+    quads = json.loads(write.calls.last.request.content)["quads"]
+    assert quads[0]["subject"] == "urn:github:owner/repo/issue/1"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_publish_decision_propagates_publish_error(ingestor):
+    respx.get("https://api.github.com/repos/owner/repo/issues/1").mock(
+        return_value=httpx.Response(200, json=FAKE_ISSUE)
+    )
+    respx.post(f"{_DKG}/api/knowledge-assets").mock(
+        return_value=httpx.Response(200, json={"status": "draft-open"})
+    )
+    respx.post(f"{_KA}/wm/write").mock(
+        return_value=httpx.Response(200, json={"written": 7})
+    )
+    respx.post(f"{_KA}/wm/finalize").mock(
+        return_value=httpx.Response(200, json={"merkleRoot": "0xroot"})
+    )
+    respx.post(f"{_KA}/swm/share-async").mock(
+        return_value=httpx.Response(200, json={"jobId": "job-1", "state": "queued"})
+    )
+    respx.get(f"{_DKG}/api/knowledge-assets/swm/share-jobs/job-1").mock(
+        return_value=httpx.Response(200, json={"jobId": "job-1", "state": "succeeded"})
+    )
+    respx.post(f"{_KA}/vm/publish").mock(
+        return_value=httpx.Response(
+            409, json={"code": "PUBLISH_NOT_FULL_SHARE"}
+        )
+    )
+    with pytest.raises(DKGPublishError, match="PUBLISH_NOT_FULL_SHARE"):
+        await ingestor.publish_decision("owner", "repo", 1, kind="issue")
+
+
+@pytest.mark.asyncio
+async def test_publish_decision_rejects_unknown_kind(ingestor):
+    with pytest.raises(ValueError, match="kind must be"):
+        await ingestor.publish_decision("owner", "repo", 1, kind="discussion")
 
 
 @pytest.mark.asyncio

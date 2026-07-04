@@ -9,7 +9,13 @@ import sys
 import click
 import httpx
 
-from .client import DKGClient
+from .client import (
+    TRUST_LEVEL_NAMES,
+    DKGClient,
+    DKGPromoteError,
+    DKGPublishError,
+    coerce_trust_level,
+)
 from .github_client import GitHubClient
 from .ingestor import GitHubDKGIngestor
 
@@ -250,6 +256,210 @@ def search(
                 click.echo(f"  [{layer}] {label}")
                 if snippet:
                     click.echo(f"    {snippet[:120]}")
+        finally:
+            await dkg.aclose()
+
+    asyncio.run(run())
+
+
+@main.command("publish-decision")
+@click.argument("repo")  # owner/repo
+@click.argument("number", type=int)
+@click.option("--type", "item_type", required=True, type=click.Choice(["issue", "pr"]))
+@click.option("--context-graph", required=True, envvar="DKG_CONTEXT_GRAPH")
+@click.option("--epochs", default=None, type=int, help="On-chain publish epochs (node default when omitted)")
+@click.option("--dkg-token", envvar="DKG_TOKEN", default=None)
+@click.option("--dkg-url", envvar="DKG_BASE_URL", default=None)
+@click.option("--github-token", envvar="GITHUB_TOKEN", default=None)
+def publish_decision(
+    repo: str,
+    number: int,
+    item_type: str,
+    context_graph: str,
+    epochs: int | None,
+    dkg_token: str | None,
+    dkg_url: str | None,
+    github_token: str | None,
+) -> None:
+    """Publish an issue or PR as a decision to Verifiable Memory (on-chain)."""
+    if "/" not in repo:
+        click.echo("Error: REPO must be in owner/repo format", err=True)
+        sys.exit(1)
+    owner, repo_name = repo.split("/", 1)
+
+    async def run() -> int:
+        dkg, gh = _make_clients(dkg_token, dkg_url, github_token)
+        try:
+            ingestor = GitHubDKGIngestor(dkg=dkg, github=gh, context_graph_id=context_graph)
+            try:
+                result = await ingestor.publish_decision(
+                    owner, repo_name, number, kind=item_type, publish_epochs=epochs
+                )
+            except (DKGPublishError, DKGPromoteError) as exc:
+                click.echo(f"Error: {exc}", err=True)
+                return 1
+            status = result.get("status", "")
+            click.echo(f"Published {item_type} #{number} ({status}):")
+            click.echo(f"  UAL:        {result.get('ual', '')}")
+            click.echo(f"  txHash:     {result.get('txHash', '')}")
+            click.echo(f"  merkleRoot: {result.get('merkleRoot', '')}")
+            return 0
+        finally:
+            await dkg.aclose()
+            await gh.aclose()
+
+    sys.exit(asyncio.run(run()))
+
+
+@main.command()
+@click.argument("ual")
+@click.option("--context-graph", required=True, envvar="DKG_CONTEXT_GRAPH")
+@click.option("--dkg-token", envvar="DKG_TOKEN", default=None)
+@click.option("--dkg-url", envvar="DKG_BASE_URL", default=None)
+def endorse(
+    ual: str,
+    context_graph: str,
+    dkg_token: str | None,
+    dkg_url: str | None,
+) -> None:
+    """Endorse a published Knowledge Asset by UAL (trust level → Endorsed)."""
+
+    async def run() -> None:
+        dkg = DKGClient(base_url=dkg_url, token=dkg_token)
+        try:
+            resp = await dkg.endorse(context_graph_id=context_graph, ual=ual)
+            click.echo(f"Endorsed {ual}")
+            click.echo("Endorsement triples ride the next publish batch.")
+            if resp:
+                click.echo(f"  {resp}")
+        finally:
+            await dkg.aclose()
+
+    asyncio.run(run())
+
+
+@main.command("verify-decision")
+@click.argument("vm-id")
+@click.argument("batch-id")
+@click.option("--context-graph", required=True, envvar="DKG_CONTEXT_GRAPH")
+@click.option("--required-signatures", default=None, type=int, help="Signature quorum to request")
+@click.option("--dkg-token", envvar="DKG_TOKEN", default=None)
+@click.option("--dkg-url", envvar="DKG_BASE_URL", default=None)
+def verify_decision(
+    vm_id: str,
+    batch_id: str,
+    context_graph: str,
+    required_signatures: int | None,
+    dkg_token: str | None,
+    dkg_url: str | None,
+) -> None:
+    """Request network verification of a Verifiable Memory batch."""
+
+    async def run() -> int:
+        dkg = DKGClient(base_url=dkg_url, token=dkg_token)
+        try:
+            result = await dkg.request_verification(
+                context_graph_id=context_graph,
+                verifiable_memory_id=vm_id,
+                batch_id=batch_id,
+                required_signatures=required_signatures,
+            )
+            status = result.get("status", "unknown")
+            click.echo(f"Verification status: {status}")
+            signatures = result.get("signatures")
+            count = (
+                len(signatures)
+                if isinstance(signatures, list)
+                else result.get("signatureCount", result.get("signerCount"))
+            )
+            if count is not None:
+                click.echo(f"Signers: {count}")
+            return 0 if status == "verified" else 1
+        finally:
+            await dkg.aclose()
+
+    sys.exit(asyncio.run(run()))
+
+
+def _sparql_escape(term: str) -> str:
+    """Escape a literal for embedding in a double-quoted SPARQL string."""
+    return term.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _oracle_rows(result: dict) -> list[dict]:
+    """Extract binding rows from a /api/query response.
+
+    Handles both the W3C SPARQL JSON shape ({"results": {"bindings": [...]}})
+    and flat {"results": [...]} / {"bindings": [...]} variants.
+    """
+    results = result.get("results")
+    if isinstance(results, dict):
+        bindings = results.get("bindings", [])
+    elif isinstance(results, list):
+        bindings = results
+    else:
+        bindings = result.get("bindings", [])
+    return [row for row in bindings if isinstance(row, dict)]
+
+
+@main.command()
+@click.argument("query")
+@click.option("--context-graph", required=True, envvar="DKG_CONTEXT_GRAPH")
+@click.option(
+    "--min-trust",
+    default="0",
+    show_default=True,
+    help="Minimum trust level: 0-3 or a name (selfAttested, endorsed, "
+    "partiallyVerified, consensusVerified)",
+)
+@click.option("--limit", default=10, show_default=True)
+@click.option("--dkg-token", envvar="DKG_TOKEN", default=None)
+@click.option("--dkg-url", envvar="DKG_BASE_URL", default=None)
+def oracle(
+    query: str,
+    context_graph: str,
+    min_trust: str,
+    limit: int,
+    dkg_token: str | None,
+    dkg_url: str | None,
+) -> None:
+    """Query the Verifiable Memory trust-gradient surface (knowledge oracle)."""
+    try:
+        trust = coerce_trust_level(min_trust)
+    except ValueError as exc:
+        raise click.BadParameter(str(exc), param_hint="--min-trust") from exc
+
+    term = _sparql_escape(query)
+    sparql = (
+        "SELECT ?s ?p ?o WHERE { ?s ?p ?o . "
+        f'FILTER(isLiteral(?o) && CONTAINS(LCASE(STR(?o)), LCASE("{term}"))) '
+        f"}} LIMIT {limit}"
+    )
+
+    async def run() -> None:
+        dkg = DKGClient(base_url=dkg_url, token=dkg_token)
+        try:
+            result = await dkg.query(
+                sparql,
+                context_graph_id=context_graph,
+                view="verifiable-memory",
+                min_trust=trust,
+            )
+            rows = _oracle_rows(result)
+            click.echo(f"{len(rows)} row(s) for '{query}':")
+            for row in rows:
+                cells = []
+                for var in ("s", "p", "o"):
+                    cell = row.get(var, "")
+                    if isinstance(cell, dict):  # W3C binding: {"value": ...}
+                        cell = cell.get("value", "")
+                    cells.append(str(cell))
+                click.echo("  " + "  |  ".join(cells))
+            click.echo(
+                f"-- provenance: contextGraphId={context_graph} "
+                f"view=verifiable-memory "
+                f"minTrust={trust} ({TRUST_LEVEL_NAMES[trust]})"
+            )
         finally:
             await dkg.aclose()
 
